@@ -1,0 +1,4 @@
+# Bun configuration. See https://bun.sh/docs/runtime/bunfig
+
+[install]
+minimumReleaseAge = 259200  # 24 hours, in seconds
