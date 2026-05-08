@@ -6,6 +6,7 @@ import type {
   Session,
 } from '@shared/index'
 import type { AgentInfo } from '../api'
+import type { SummaryState } from '../store'
 
 export function exportAsJson(
   session: Session,
@@ -15,6 +16,7 @@ export function exportAsJson(
   opts?: {
     mode?: DiscussionMode
     consensusRun?: ConsensusRunResult | null
+    summary?: SummaryState | null
   },
 ): string {
   const agentMap = Object.fromEntries(agents.map((a) => [a.id, a]))
@@ -30,12 +32,19 @@ export function exportAsJson(
     }
   }
 
+  // Mode is now persisted on the session itself (sessions.mode column);
+  // trust that. The optional `opts.mode` picker value is a tiebreaker for
+  // legacy code paths only — session.mode is authoritative.
+  const exportMode: DiscussionMode = session.mode ?? opts?.mode ?? 'free'
+
   const data: Record<string, unknown> = {
     exported_at: new Date().toISOString(),
-    mode: opts?.mode ?? 'free',
+    mode: exportMode,
     session: {
       id: session.id,
+      title: session.title,
       created_at: new Date(session.createdAt).toISOString(),
+      updated_at: new Date(session.updatedAt).toISOString(),
     },
     agents: agents.map((a) => ({
       id: a.id,
@@ -97,6 +106,24 @@ export function exportAsJson(
       total_rounds: opts.consensusRun.totalRounds,
       final_synthesis: opts.consensusRun.finalSynthesis,
       transcript_markdown: opts.consensusRun.transcript,
+    }
+  }
+
+  // Round-trip the latest manual Summarize output so re-importing brings
+  // the summary card back. We only carry the latest snapshot — the DB
+  // stores history, but the UI only ever shows one summary at a time.
+  if (opts?.summary) {
+    const sum = opts.summary
+    data.summary = {
+      prompt: sum.prompt,
+      agent_label: sum.agentLabel,
+      content: sum.content,
+      status: sum.status,
+      error: sum.error ?? null,
+      // SummaryState (zustand) doesn't carry timestamps — those live on the
+      // DB row. Use export time as a reasonable proxy on round-trip.
+      created_at: new Date().toISOString(),
+      finalized_at: sum.status === 'done' ? new Date().toISOString() : null,
     }
   }
 

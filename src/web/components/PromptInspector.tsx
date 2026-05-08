@@ -39,7 +39,7 @@ export function PromptInspector() {
 
   return (
     <div
-      className="fixed inset-0 bg-parchment-900/20 backdrop-blur-[2px] z-40 flex justify-end"
+      className="fixed inset-0 bg-black/50 z-40 flex justify-end"
       onClick={() => close(null)}
     >
       <div

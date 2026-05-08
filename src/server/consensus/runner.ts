@@ -49,11 +49,6 @@ async function collectStream(
   return chunks.join('')
 }
 
-function extractField(text: string, field: string): string {
-  const m = text.match(new RegExp(`^${field}:\\s*([\\s\\S]*?)(?=\\n[A-Z_]+:|$)`, 'im'))
-  return m?.[1]?.trim() ?? ''
-}
-
 export async function runConsensus(args: RunConsensusArgs): Promise<ConsensusRunResult> {
   const { question, maxRounds, orch, onProgress, onRoundStarted } = args
   const log = onProgress ?? ((s: string) => console.log(`[consensus] ${s}`))
@@ -132,7 +127,7 @@ export async function runConsensus(args: RunConsensusArgs): Promise<ConsensusRun
     // Orchestrator-state summary (review rounds only). Same fixed external
     // model as final synthesis — see getSynthesisAdapter() above.
     if (consensusIdx > 0) {
-      log(`  Building orchestrator state (Gemini 3 Flash)…`)
+      log(`  Building orchestrator state (Gemini 3.1 Pro)…`)
       orchestratorState = await buildOrchestratorState({
         roundNumber: consensusIdx,
         agentSignals,
@@ -169,7 +164,7 @@ export async function runConsensus(args: RunConsensusArgs): Promise<ConsensusRun
   // — same fixed external model used for the per-round recap and the manual
   // Summarize button. Decouples the synthesizer from debate participants and
   // keeps output style stable across runs.
-  log(`Running final synthesis (Gemini 3 Flash)…`)
+  log(`Running final synthesis (Gemini 3.1 Pro)…`)
   const synthesisTranscript = transcriptParts.join('')
   const synthesisPrompt = buildFinalSynthesisPrompt(
     question,
@@ -181,13 +176,14 @@ export async function runConsensus(args: RunConsensusArgs): Promise<ConsensusRun
     { role: 'user', content: synthesisPrompt },
   ])
 
-  const finalSynthesis = {
-    consensusFindings: extractField(synthText, 'CONSENSUS_FINDINGS'),
-    remainingDisagreements: extractField(synthText, 'REMAINING_DISAGREEMENTS'),
-    confidenceRange: extractField(synthText, 'CONFIDENCE_RANGE'),
-    practicalImplications: extractField(synthText, 'PRACTICAL_IMPLICATIONS'),
-    rawText: synthText,
-  }
+  // Persist the model's full synthesis as-is. We used to parse it into
+  // four named sections (CONSENSUS_FINDINGS, REMAINING_DISAGREEMENTS,
+  // CONFIDENCE_RANGE, PRACTICAL_IMPLICATIONS) but Gemini Flash's
+  // formatting was inconsistent enough that the parser kept breaking;
+  // the UI now renders rawText directly. The structured-output
+  // instructions in `buildFinalSynthesisPrompt` still guide the model
+  // toward a tidy report — they're just no longer load-bearing.
+  const finalSynthesis = { rawText: synthText }
 
   transcriptParts.push(`\n---\n\n## Final Synthesis\n\n${synthText}\n`)
   log(`Done. ${roundRecords.length} rounds completed.`)

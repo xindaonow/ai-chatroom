@@ -25,6 +25,7 @@ function newSession(): Session {
     id: 's1',
     agents: AGENTS.map((id) => ({ id, label: id, model: id })),
     title: null,
+    mode: 'free',
     createdAt: ts,
     updatedAt: ts,
   }
@@ -57,6 +58,8 @@ function insertUserMsg(round: Round, text: string): Message {
     visibleTo: initialVisibilityForUser(),
     rendered: null,
     prompt: null,
+    inputTokens: null,
+    outputTokens: null,
     createdAt: nextTs(),
     finalizedAt: null,
   }
@@ -77,6 +80,8 @@ function insertAsstPlaceholder(round: Round, agentId: string): Message {
     visibleTo: initialVisibilityForAssistant(agentId),
     rendered: null,
     prompt: null,
+    inputTokens: null,
+    outputTokens: null,
     createdAt: nextTs(),
     finalizedAt: null,
   }

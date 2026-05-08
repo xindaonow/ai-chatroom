@@ -44,6 +44,7 @@ export type ImportResult = {
   messages: Message[]
   mode: DiscussionMode
   consensusRun: ConsensusRunResult | null
+  summary: Summary | null
 }
 
 export async function importSession(jsonText: string): Promise<ImportResult> {
@@ -65,11 +66,13 @@ export async function importSession(jsonText: string): Promise<ImportResult> {
 
 export async function createSession(
   modelIds?: string[],
+  mode?: 'free' | 'brainstorm' | 'consensus',
 ): Promise<{ session: Session; agents: AgentInfo[] }> {
+  const hasBody = modelIds !== undefined || mode !== undefined
   const r = await fetch(`${API}/sessions`, {
     method: 'POST',
-    headers: modelIds ? { 'content-type': 'application/json' } : {},
-    body: modelIds ? JSON.stringify({ modelIds }) : undefined,
+    headers: hasBody ? { 'content-type': 'application/json' } : {},
+    body: hasBody ? JSON.stringify({ modelIds, mode }) : undefined,
   })
   if (!r.ok) throw new Error('createSession failed')
   return r.json()

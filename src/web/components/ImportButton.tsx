@@ -9,6 +9,7 @@ export function ImportButton() {
   const setMode = useStore((s) => s.setMode)
   const setConsensusRun = useStore((s) => s.setConsensusRun)
   const setSelectedModelIds = useStore((s) => s.setSelectedModelIds)
+  const loadSummary = useStore((s) => s.loadSummary)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -41,8 +42,10 @@ export function ImportButton() {
         messages: result.messages,
       })
       setMode(result.mode)
-      // setSnapshot clears consensusRun on session change; restore after.
+      // setSnapshot clears consensusRun + summary on session change; restore
+      // both after so the imported synthesis and Summarize card show up.
       setConsensusRun(result.consensusRun)
+      loadSummary(result.summary ?? null)
     } catch (e) {
       const msg = (e as Error).message
       // Inline toast + console.error so silent failures (the original UX

@@ -14,6 +14,7 @@
     "dev:web": "vite",
     "dev": "bun run dev:server & bun run dev:web",
     "build:web": "vite build",
+    "start": "bun run src/server/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "verify:fast": "bun run typecheck && bun test --silent",

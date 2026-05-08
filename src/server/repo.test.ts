@@ -18,6 +18,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
       { id: 'a-B', label: 'Agent B', model: 'mock/b' },
     ],
     title: null,
+    mode: 'free',
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -52,6 +53,8 @@ function makeMessage(
     visibleTo: ['a-A'],
     rendered: null,
     prompt: null,
+    inputTokens: null,
+    outputTokens: null,
     createdAt: Date.now(),
     finalizedAt: null,
     ...partial,
@@ -91,6 +94,24 @@ describe('listSessions', () => {
     expect(list[0].title).toBe('my chat')
     expect(list[0].agents).toEqual(s.agents)
   })
+
+  test('round-trips mode for free / brainstorm / consensus', () => {
+    const sFree = makeSession({ id: 'sf', mode: 'free' })
+    const sBrain = makeSession({ id: 'sb', mode: 'brainstorm' })
+    const sCons = makeSession({ id: 'sc', mode: 'consensus' })
+    repo.insertSession(sFree)
+    repo.insertSession(sBrain)
+    repo.insertSession(sCons)
+    expect(repo.getSession('sf')?.mode).toBe('free')
+    expect(repo.getSession('sb')?.mode).toBe('brainstorm')
+    expect(repo.getSession('sc')?.mode).toBe('consensus')
+    const list = repo.listSessions()
+    const byId = Object.fromEntries(list.map((x) => [x.id, x]))
+    expect(byId.sf.mode).toBe('free')
+    expect(byId.sb.mode).toBe('brainstorm')
+    expect(byId.sc.mode).toBe('consensus')
+  })
+
 })
 
 describe('deleteSession (cascade)', () => {
@@ -133,13 +154,7 @@ describe('deleteSession (cascade)', () => {
         question: 'q',
         modelIds: ['m'],
         rounds: [],
-        finalSynthesis: {
-          consensusFindings: '',
-          remainingDisagreements: '',
-          confidenceRange: '',
-          practicalImplications: '',
-          rawText: '',
-        },
+        finalSynthesis: { rawText: '' },
         totalRounds: 0,
         transcript: '',
       },
@@ -165,6 +180,7 @@ describe('deleteSession (cascade)', () => {
     expect(repo.getLatestConsensusRun(s.id)).toBeNull()
     expect(repo.getLatestSummary(s.id)).toBeNull()
   })
+
 
   test('does not affect other sessions', () => {
     const s1 = makeSession({ id: 's1' })

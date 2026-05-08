@@ -56,6 +56,10 @@ export function createOpenRouterAdapter(opts: {
         model: opts.model,
         messages: isAnthropic ? withCacheControl(coalesced) : coalesced,
         stream: true,
+        // Required for OpenAI-compatible providers to include the `usage`
+        // object on the terminal SSE event. Anthropic via OpenRouter sends
+        // it by default; this flag is harmless for them.
+        stream_options: { include_usage: true },
         max_tokens: maxTokens,
         verbosity,
         reasoning: { effort },
@@ -119,6 +123,22 @@ export function createOpenRouterAdapter(opts: {
                 const text: string =
                   parsed.choices?.[0]?.delta?.content ?? ''
                 if (text.length > 0) yield { type: 'chunk', text }
+                // The terminal SSE event carries `usage` (with
+                // stream_options.include_usage on OpenAI-compatible
+                // providers). Yield exactly once so consumers can
+                // persist the token counts.
+                const usage = parsed.usage
+                if (
+                  usage &&
+                  typeof usage.prompt_tokens === 'number' &&
+                  typeof usage.completion_tokens === 'number'
+                ) {
+                  yield {
+                    type: 'usage',
+                    inputTokens: usage.prompt_tokens,
+                    outputTokens: usage.completion_tokens,
+                  }
+                }
               } catch {
                 // ignore malformed event
               }

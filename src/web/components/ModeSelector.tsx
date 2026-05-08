@@ -24,16 +24,22 @@ const MODES: {
   },
 ]
 
+// Total rounds for a consensus run. Round 0 is initial answers; rounds > 0
+// are review passes. We don't expose 1 (no review = not really consensus).
+const ROUND_OPTIONS = [2, 3, 4, 5]
+
 export function ModeSelector() {
   const mode = useStore((s) => s.mode)
   const setMode = useStore((s) => s.setMode)
+  const consensusMaxRounds = useStore((s) => s.consensusMaxRounds)
+  const setConsensusMaxRounds = useStore((s) => s.setConsensusMaxRounds)
   const [helpOpen, setHelpOpen] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const helpRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!helpOpen) return
     function onMouseDown(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (helpRef.current && !helpRef.current.contains(e.target as Node)) {
         setHelpOpen(false)
       }
     }
@@ -47,7 +53,7 @@ export function ModeSelector() {
         Mode
       </span>
 
-      <div ref={containerRef} className="relative">
+      <div ref={helpRef} className="relative">
         <button
           onClick={() => setHelpOpen((o) => !o)}
           aria-label="What are the modes?"
@@ -102,6 +108,40 @@ export function ModeSelector() {
           )
         })}
       </div>
+
+      {mode === 'consensus' && (
+        <>
+          <span className="font-sans text-[10px] font-semibold text-parchment-400 uppercase tracking-widest ml-2">
+            Rounds
+          </span>
+          <div
+            role="radiogroup"
+            aria-label="Consensus rounds"
+            className="flex items-center gap-0.5 rounded-lg bg-parchment-200 p-0.5 border border-parchment-300"
+          >
+            {ROUND_OPTIONS.map((n) => {
+              const active = consensusMaxRounds === n
+              return (
+                <button
+                  key={n}
+                  onClick={() => setConsensusMaxRounds(n)}
+                  role="radio"
+                  aria-checked={active}
+                  title={`${n} rounds — initial answers + ${n - 1} review pass${n - 1 === 1 ? '' : 'es'}`}
+                  className={[
+                    'px-3 py-1 rounded-md font-sans text-[12px] font-medium tabular-nums transition-all',
+                    active
+                      ? 'bg-white text-parchment-900 shadow-sm'
+                      : 'text-parchment-500 hover:text-parchment-700',
+                  ].join(' ')}
+                >
+                  {n}
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
     </div>
   )
 }

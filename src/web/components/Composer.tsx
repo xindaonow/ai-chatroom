@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useStore } from '../store'
 import { SummarizeButton } from './SummarizeButton'
 
 type Props = {
@@ -9,9 +8,6 @@ type Props = {
 
 export function Composer({ disabled, onSend }: Props) {
   const [text, setText] = useState('')
-  const mode = useStore((s) => s.mode)
-  const consensusMaxRounds = useStore((s) => s.consensusMaxRounds)
-  const setConsensusMaxRounds = useStore((s) => s.setConsensusMaxRounds)
 
   function send() {
     const t = text.trim()
@@ -36,25 +32,6 @@ export function Composer({ disabled, onSend }: Props) {
           }}
           disabled={disabled}
         />
-        {mode === 'consensus' && (
-          <label
-            title="Number of rounds Consensus mode auto-runs (each AI replies N times, then a final synthesis)"
-            className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-white border border-parchment-300 font-sans text-[12px] text-parchment-600"
-          >
-            <input
-              type="number"
-              min={1}
-              max={10}
-              value={consensusMaxRounds}
-              onChange={(e) => {
-                const v = Math.max(1, Math.min(10, Number(e.target.value)))
-                if (!isNaN(v)) setConsensusMaxRounds(v)
-              }}
-              className="w-9 bg-transparent text-parchment-900 text-center font-sans text-[13px] tabular-nums focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-            />
-            <span className="text-parchment-400">rounds</span>
-          </label>
-        )}
         <div className="flex flex-col gap-2 flex-shrink-0 w-28">
           <button
             className="w-full px-3 py-2.5 rounded-xl bg-ink text-white font-sans text-[13px] font-medium hover:bg-ink-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"

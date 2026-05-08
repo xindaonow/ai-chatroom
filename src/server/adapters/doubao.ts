@@ -33,6 +33,7 @@ export function createDoubaoAdapter(opts: {
         model,
         messages: coalesceMessages(messages),
         stream: true,
+        stream_options: { include_usage: true },
       }
 
       let res: Response
@@ -97,6 +98,18 @@ export function createDoubaoAdapter(opts: {
                 const parsed = JSON.parse(data)
                 const text: string = parsed.choices?.[0]?.delta?.content ?? ''
                 if (text.length > 0) yield { type: 'chunk', text }
+                const usage = parsed.usage
+                if (
+                  usage &&
+                  typeof usage.prompt_tokens === 'number' &&
+                  typeof usage.completion_tokens === 'number'
+                ) {
+                  yield {
+                    type: 'usage',
+                    inputTokens: usage.prompt_tokens,
+                    outputTokens: usage.completion_tokens,
+                  }
+                }
               } catch {
                 // ignore malformed event
               }

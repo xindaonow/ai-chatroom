@@ -44,6 +44,23 @@ export function createGeminiAdapter(opts: {
             yield { type: 'chunk', text: chunk }
           }
         }
+        // After the text stream drains, the SDK exposes the final token
+        // counts on `result.usage` (a promise that resolves on stream end).
+        // Yield once before `done` so the orchestrator can persist it.
+        try {
+          const usage = await result.usage
+          // ai-sdk v6 names: inputTokens / outputTokens. Older versions
+          // named these promptTokens / completionTokens, so cast through
+          // a permissive shape and try both.
+          const u = usage as { inputTokens?: number; outputTokens?: number; promptTokens?: number; completionTokens?: number } | undefined
+          const inputTokens = u?.inputTokens ?? u?.promptTokens
+          const outputTokens = u?.outputTokens ?? u?.completionTokens
+          if (typeof inputTokens === 'number' && typeof outputTokens === 'number') {
+            yield { type: 'usage', inputTokens, outputTokens }
+          }
+        } catch {
+          // usage promise rejecting is non-fatal; the response itself succeeded
+        }
         yield { type: 'done' }
       } catch (e) {
         yield { type: 'error', error: (e as Error).message }

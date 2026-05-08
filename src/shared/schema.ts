@@ -18,6 +18,9 @@ export type MessageStatus = z.infer<typeof MessageStatusSchema>
 export const RoundStatusSchema = z.enum(['streaming', 'finalized'])
 export type RoundStatus = z.infer<typeof RoundStatusSchema>
 
+export const DiscussionModeSchema = z.enum(['free', 'brainstorm', 'consensus'])
+export type DiscussionMode = z.infer<typeof DiscussionModeSchema>
+
 // Rendered: per-viewer frozen serialization, set at finalize time.
 // Key is viewer agentId; '*' means same content for all viewers (e.g. user msgs).
 export const RenderedSchema = z.record(
@@ -55,6 +58,10 @@ export const MessageSchema = z.object({
   visibleTo: VisibilitySchema,
   rendered: RenderedSchema.nullable(),
   prompt: PromptSnapshotSchema.nullable(),
+  /** Final token counts from the LLM provider. Set once when the stream
+   *  ends; null while streaming and for non-assistant messages. */
+  inputTokens: z.number().int().nonnegative().nullable(),
+  outputTokens: z.number().int().nonnegative().nullable(),
   createdAt: z.number(),
   finalizedAt: z.number().nullable(),
 })
@@ -80,6 +87,7 @@ export const SessionSchema = z.object({
   id: z.string(),
   agents: z.array(AgentSnapshotSchema),
   title: z.string().nullable(),
+  mode: DiscussionModeSchema,
   createdAt: z.number(),
   updatedAt: z.number(),
 })
@@ -89,6 +97,7 @@ export const SessionListItemSchema = z.object({
   id: z.string(),
   title: z.string().nullable(),
   agents: z.array(AgentSnapshotSchema),
+  mode: DiscussionModeSchema,
   roundCount: z.number().int().nonnegative(),
   createdAt: z.number(),
   updatedAt: z.number(),
@@ -107,7 +116,6 @@ export type Summary = {
   finalizedAt: number | null
 }
 
-export type DiscussionMode = 'free' | 'consensus' | 'brainstorm'
 export type ConsensusPhase = 'initial' | 'review' | 'final'
 
 export type AgentSignal = {
@@ -136,11 +144,13 @@ export type OrchestratorState = {
   summaryText: string
 }
 
+/**
+ * Final synthesis from a consensus run. The LLM's raw output, persisted
+ * as a single string. The UI renders it as-is. The Host model is still
+ * asked to structure its output (see `buildFinalSynthesisPrompt`), but
+ * we don't enforce or parse — we just trust the model.
+ */
 export type ConsensusFinalSynthesis = {
-  consensusFindings: string
-  remainingDisagreements: string
-  confidenceRange: string
-  practicalImplications: string
   rawText: string
 }
 

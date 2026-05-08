@@ -36,6 +36,7 @@ export function App() {
   const agents = useStore((s) => s.agents)
 
   const mode = useStore((s) => s.mode)
+  const setMode = useStore((s) => s.setMode)
   const consensusMaxRounds = useStore((s) => s.consensusMaxRounds)
   const setSelectedModelIds = useStore((s) => s.setSelectedModelIds)
   const selectedModelIds = useStore((s) => s.selectedModelIds)
@@ -45,12 +46,14 @@ export function App() {
   const [busy, setBusy] = useState(false)
   const consensusProgress = useStore((s) => s.consensusProgress)
   const consensusRun = useStore((s) => s.consensusRun)
+  const summary = useStore((s) => s.summary)
 
   function handleSave() {
     if (!session || rounds.length === 0) return
     const json = exportAsJson(session, rounds, messages, agents, {
       mode,
       consensusRun,
+      summary,
     })
     const date = new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-')
     downloadText(json, `ai-chatroom-${date}.json`, 'application/json;charset=utf-8')
@@ -106,6 +109,10 @@ export function App() {
       rounds: fresh.rounds,
       messages: fresh.messages,
     })
+    // Restore the picker mode from the session's stored mode so re-opening
+    // a brainstorm/consensus session doesn't silently fall back to whatever
+    // the picker last showed (e.g. Free).
+    setMode(fresh.session.mode)
     setConsensusRun(fresh.consensusRun)
     loadSummary(fresh.summary)
     resetConsensusProgress()
@@ -177,6 +184,7 @@ export function App() {
     if (!activeSession) {
       const created = await createSession(
         selectedModelIds.length >= 2 ? selectedModelIds : undefined,
+        mode,
       )
       activeSession = created.session
       setAgents(created.agents)

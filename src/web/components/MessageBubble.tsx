@@ -7,9 +7,17 @@ import type { Message } from '@shared/index'
 type Props = {
   message: Message
   agentIndex?: number
+  /** When true, hide the body but keep the header. Set by RoundBlock when
+   *  the user collapses a whole round so all AI bubbles fold together. */
+  collapsed?: boolean
+  /** When true, drop the card chrome (rounded corners, white bg, border,
+   *  shadow, internal padding) so the bubble blends into a parent round
+   *  container. AI bubbles keep their accent stripe + header band so each
+   *  column is still identifiable. */
+  merged?: boolean
 }
 
-export function MessageBubble({ message, agentIndex = 0 }: Props) {
+export function MessageBubble({ message, agentIndex = 0, collapsed = false, merged = false }: Props) {
   const stream = useStore((s) => s.streaming.get(message.id))
   const agentLabel = useStore((s) =>
     message.agentId
@@ -106,10 +114,13 @@ export function MessageBubble({ message, agentIndex = 0 }: Props) {
   // ── User message ──────────────────────────────────────────────────────────
   if (isUser) {
     return (
-      <div className="rounded-xl bg-white border border-parchment-200 px-4 py-3 shadow-sm">
-        <div className="font-sans text-[10px] font-semibold uppercase tracking-widest text-parchment-400 mb-2">
-          You
-        </div>
+      <div
+        className={
+          merged
+            ? ''
+            : 'rounded-xl bg-white border border-parchment-200 px-4 py-3 shadow-sm'
+        }
+      >
         <div className="font-sans text-[14px] leading-relaxed text-parchment-900 whitespace-pre-wrap">
           {message.content}
         </div>
@@ -120,8 +131,11 @@ export function MessageBubble({ message, agentIndex = 0 }: Props) {
   // ── Assistant message ──────────────────────────────────────────────────────
   return (
     <div
-      className="rounded-xl bg-white border border-parchment-200 shadow-sm overflow-hidden"
-      style={{ borderLeft: `3px solid ${accent.stripe}` }}
+      className={
+        merged
+          ? ''
+          : 'rounded-xl bg-white border border-parchment-200 shadow-sm overflow-hidden'
+      }
     >
       {/* Agent header */}
       <div
@@ -175,6 +189,18 @@ export function MessageBubble({ message, agentIndex = 0 }: Props) {
               {ttft !== null && ttft > 0 && ` · ttft ${(ttft / 1000).toFixed(1)}s`}
             </span>
           )}
+          {/* Token usage from the provider (set by the orchestrator after
+              the adapter's `usage` event). Display the output token count
+              with input/total in the tooltip — that's what the user
+              perceives as "how much did this AI write." */}
+          {message.outputTokens !== null && message.outputTokens !== undefined && (
+            <span
+              className="text-parchment-400"
+              title={`${message.inputTokens ?? 0} in · ${message.outputTokens} out · ${(message.inputTokens ?? 0) + message.outputTokens} total`}
+            >
+              · {message.outputTokens.toLocaleString()} tok
+            </span>
+          )}
           {isError && (
             <span className="text-red-600 font-medium">error</span>
           )}
@@ -205,26 +231,31 @@ export function MessageBubble({ message, agentIndex = 0 }: Props) {
         </div>
       </div>
 
-      {/* Content — capped height with internal scroll for long responses. */}
-      <div className="px-4 py-3 max-h-[60vh] overflow-y-auto">
-        {isWaiting ? (
-          <div className="flex items-center gap-2 text-parchment-400 py-0.5 select-none">
-            <span className="text-base tracking-widest">⋯</span>
-          </div>
-        ) : isError ? (
-          <div className="text-[13px] text-red-600 break-all leading-relaxed">
-            {stream?.error ?? message.content}
-          </div>
-        ) : (
-          <div className="font-sans text-[14px] leading-relaxed text-parchment-900 whitespace-pre-wrap">
-            {liveContent}
-            {isStreaming && (
-              <span className="inline-block w-[2px] h-[1.1em] ml-0.5 align-middle cursor-blink"
-                style={{ backgroundColor: accent.stripe }} />
-            )}
-          </div>
-        )}
-      </div>
+      {/* Content — capped height with internal scroll for long responses.
+          Hidden when the bubble is collapsed via the chevron. */}
+      {!collapsed && (
+        <div className="px-4 py-3 max-h-[60vh] overflow-y-auto">
+          {isWaiting ? (
+            <div className="flex items-center gap-2 text-parchment-400 py-0.5 select-none">
+              <span className="text-base tracking-widest">⋯</span>
+            </div>
+          ) : isError ? (
+            <div className="text-[13px] text-red-600 break-all leading-relaxed">
+              {stream?.error ?? message.content}
+            </div>
+          ) : (
+            <div className="font-sans text-[14px] leading-relaxed text-parchment-900 whitespace-pre-wrap">
+              {liveContent}
+              {isStreaming && (
+                <span
+                  className="inline-block w-[2px] h-[1.1em] ml-0.5 align-middle cursor-blink"
+                  style={{ backgroundColor: accent.stripe }}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

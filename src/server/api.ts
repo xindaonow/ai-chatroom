@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { streamSSE } from 'hono/streaming'
+import { serveStatic } from 'hono/bun'
 import type { Orchestrator } from './orchestrator'
 import { getHostAdapter, HOST_LABEL } from './host'
 import { presets, extraModels } from '../../agents.config'
@@ -20,6 +21,7 @@ import type {
   Message,
   OrchestratorState,
   Round,
+  Summary,
 } from '@shared/index'
 
 export function createApi(orch: Orchestrator) {
@@ -38,25 +40,6 @@ export function createApi(orch: Orchestrator) {
     .map((s) => s.trim())
     .filter(Boolean)
   app.use('*', cors({ origin: allowedOrigins }))
-
-  app.get('/', (c) =>
-    c.text(
-      [
-        'AI Chatroom — API server',
-        '',
-        'This is the backend on :3000. The web UI is on http://localhost:5173/',
-        '',
-        'Endpoints:',
-        '  GET  /api/health',
-        '  GET  /api/agents',
-        '  POST /api/sessions',
-        '  GET  /api/sessions/:id',
-        '  POST /api/rounds          { sessionId, userText }',
-        '  GET  /api/rounds/:roundId/stream/:agentId   (SSE)',
-        '  GET  /api/messages/:id/prompt',
-      ].join('\n'),
-    ),
-  )
 
   app.get('/api/health', (c) => c.json({ ok: true }))
 
@@ -80,13 +63,17 @@ export function createApi(orch: Orchestrator) {
 
   app.post('/api/sessions', async (c) => {
     let modelIds: string[] | undefined
+    let mode: DiscussionMode = 'free'
     try {
       const body = await c.req.json()
       if (Array.isArray(body?.modelIds) && body.modelIds.length >= 2) {
         modelIds = body.modelIds.map(String)
       }
+      if (body?.mode === 'consensus' || body?.mode === 'brainstorm' || body?.mode === 'free') {
+        mode = body.mode
+      }
     } catch {}
-    const s = orch.createSession(modelIds)
+    const s = orch.createSession(modelIds, mode)
     const agents = orch.agentsFor(s.id).map((a) => ({ id: a.id, label: a.label, model: a.model }))
     return c.json({ session: s, agents })
   })
@@ -138,10 +125,14 @@ export function createApi(orch: Orchestrator) {
       return c.json({ error: 'each agent entry must have a "model" field' }, 400)
     }
 
-    // Create a fresh session with the same models. orch.createSession assigns
-    // new IDs deterministically; we pair them by position with the exported
-    // agents to remap historical agent_id references.
-    const session = orch.createSession(modelIds)
+    const validModes: DiscussionMode[] = ['free', 'consensus', 'brainstorm']
+    const rawMode = typeof body.mode === 'string' ? (body.mode as DiscussionMode) : 'free'
+    const mode: DiscussionMode = validModes.includes(rawMode) ? rawMode : 'free'
+
+    // Create a fresh session with the same models and mode. orch.createSession
+    // assigns new IDs deterministically; we pair them by position with the
+    // exported agents to remap historical agent_id references.
+    const session = orch.createSession(modelIds, mode)
     const newAgents = orch.agentsFor(session.id)
     const agentIdMap: Record<string, string> = {}
     for (let i = 0; i < exportedAgents.length; i++) {
@@ -162,7 +153,11 @@ export function createApi(orch: Orchestrator) {
       return Number.isNaN(t) ? null : t
     }
 
-    // Derive a title from the first user message in the export, if any.
+    // Title resolution: prefer the explicit title from the export (recent
+    // exports include `session.title`); fall back to the first user message
+    // for older exports that didn't carry a title.
+    const exportedSession = (body.session ?? {}) as Record<string, unknown>
+    const exportedTitle = typeof exportedSession.title === 'string' ? exportedSession.title : null
     const firstUserContent = (() => {
       for (const r of exportedRounds) {
         const msgs = Array.isArray(r.messages) ? (r.messages as Array<Record<string, unknown>>) : []
@@ -174,8 +169,9 @@ export function createApi(orch: Orchestrator) {
       }
       return null
     })()
-    if (firstUserContent) {
-      orch.repo.setTitleIfMissing(session.id, firstUserContent.slice(0, 80))
+    const titleToSet = exportedTitle ?? (firstUserContent ? firstUserContent.slice(0, 80) : null)
+    if (titleToSet) {
+      orch.repo.setTitleIfMissing(session.id, titleToSet)
     }
 
     // Replay every round → insert as if streaming, then call finalizeRound to
@@ -216,6 +212,8 @@ export function createApi(orch: Orchestrator) {
             visibleTo: initialVisibilityForUser(),
             rendered: null,
             prompt: null,
+            inputTokens: null,
+            outputTokens: null,
             createdAt,
             finalizedAt: null,
           }
@@ -244,6 +242,10 @@ export function createApi(orch: Orchestrator) {
             visibleTo: initialVisibilityForAssistant(newAgentId),
             rendered: null,
             prompt: importedPrompt,
+            inputTokens:
+              typeof m.input_tokens === 'number' ? m.input_tokens : null,
+            outputTokens:
+              typeof m.output_tokens === 'number' ? m.output_tokens : null,
             createdAt,
             finalizedAt,
           }
@@ -266,10 +268,6 @@ export function createApi(orch: Orchestrator) {
     const freshRounds = orch.repo.listRounds(session.id)
     const freshMessages = orch.repo.listMessages(session.id)
 
-    const validModes: DiscussionMode[] = ['free', 'consensus', 'brainstorm']
-    const rawMode = typeof body.mode === 'string' ? (body.mode as DiscussionMode) : 'free'
-    const mode: DiscussionMode = validModes.includes(rawMode) ? rawMode : 'free'
-
     let consensusRun: ConsensusRunResult | null = null
     const cr = body.consensus_run as Record<string, unknown> | undefined
     if (cr) {
@@ -291,19 +289,13 @@ export function createApi(orch: Orchestrator) {
             (m) => m.role === 'user',
           )
         : null
-      const finalSyn = (cr.final_synthesis ?? {}) as ConsensusFinalSynthesis
+      const finalSyn = (cr.final_synthesis ?? {}) as Partial<ConsensusFinalSynthesis>
       consensusRun = {
         sessionId: session.id,
         question: typeof firstUserMsg?.content === 'string' ? firstUserMsg.content : '',
         modelIds,
         rounds: reconstructedRounds,
-        finalSynthesis: {
-          consensusFindings: finalSyn.consensusFindings ?? '',
-          remainingDisagreements: finalSyn.remainingDisagreements ?? '',
-          confidenceRange: finalSyn.confidenceRange ?? '',
-          practicalImplications: finalSyn.practicalImplications ?? '',
-          rawText: finalSyn.rawText ?? '',
-        },
+        finalSynthesis: { rawText: finalSyn.rawText ?? '' },
         totalRounds: Number(cr.total_rounds ?? reconstructedRounds.length),
         transcript: typeof cr.transcript_markdown === 'string' ? cr.transcript_markdown : '',
       }
@@ -320,6 +312,34 @@ export function createApi(orch: Orchestrator) {
       }
     }
 
+    // Restore the manual Summarize output from the export (latest snapshot
+    // only — older history is not round-tripped). Field name `summary` is
+    // singular for round-trip simplicity.
+    let importedSummary: Summary | null = null
+    const sumRaw = body.summary as Record<string, unknown> | undefined
+    if (sumRaw && typeof sumRaw === 'object') {
+      const status = sumRaw.status === 'streaming' || sumRaw.status === 'error' ? sumRaw.status : 'done'
+      const createdAt = parseDate(sumRaw.created_at) ?? Date.now()
+      const finalizedAt = parseDate(sumRaw.finalized_at)
+      const summary: Summary = {
+        id: newId('sum'),
+        sessionId: session.id,
+        prompt: typeof sumRaw.prompt === 'string' ? sumRaw.prompt : '',
+        agentLabel: typeof sumRaw.agent_label === 'string' ? sumRaw.agent_label : HOST_LABEL,
+        content: typeof sumRaw.content === 'string' ? sumRaw.content : '',
+        status: status as Summary['status'],
+        error: typeof sumRaw.error === 'string' ? sumRaw.error : null,
+        createdAt,
+        finalizedAt,
+      }
+      try {
+        orch.repo.insertSummary(summary)
+        importedSummary = summary
+      } catch (e) {
+        console.error('[import] persist summary failed:', (e as Error).message)
+      }
+    }
+
     return c.json({
       session: freshSession,
       rounds: freshRounds,
@@ -327,6 +347,7 @@ export function createApi(orch: Orchestrator) {
       agents: newAgents.map((a) => ({ id: a.id, label: a.label, model: a.model })),
       mode,
       consensusRun,
+      summary: importedSummary,
     })
   })
 
@@ -602,6 +623,32 @@ ${transcript}`,
     if (!result) return c.json({ error: 'not found' }, 404)
     return c.json(result)
   })
+
+  // ── Static frontend (production) ──────────────────────────────────────────
+  //
+  // In dev, the user opens Vite at :5173 and Vite proxies /api/* to here —
+  // this code path is dormant. In production, the Bun server is the sole
+  // ingress: it serves /api/* via the routes above, then falls through to
+  // the bundled SPA in dist/web/.
+  //
+  // Order matters:
+  //   1. /api/* (defined above) takes precedence
+  //   2. Real files in dist/web/ — index.html, /assets/*, etc.
+  //      The rewriteRequestPath maps "/" → "/index.html" because Hono's
+  //      serveStatic does NOT auto-resolve directory paths to index.html;
+  //      without this, a GET / returns 200 with an empty body and no
+  //      Content-Type, which browsers treat as a file download.
+  //   3. SPA fallback to index.html for any other path so client-side
+  //      router routes (/sessions/:id, /admin, …) load the app instead
+  //      of returning 404.
+  app.use(
+    '/*',
+    serveStatic({
+      root: './dist/web',
+      rewriteRequestPath: (path) => (path === '/' ? '/index.html' : path),
+    }),
+  )
+  app.use('*', serveStatic({ root: './dist/web', path: 'index.html' }))
 
   return app
 }

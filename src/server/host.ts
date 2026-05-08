@@ -15,15 +15,15 @@ import { createOpenRouterAdapter } from './adapters/openrouter'
  * Lazy-init so module load doesn't require OPENROUTER_API_KEY (matters for
  * tests that import downstream files without ever invoking the host).
  */
-const HOST_MODEL = 'google/gemini-3-flash-preview'
-export const HOST_LABEL = 'Gemini 3 Flash (Host)'
+const HOST_MODEL = 'google/gemini-3.1-pro-preview'
+export const HOST_LABEL = 'Gemini 3.1 Pro (Host)'
 
 let adapter: ReturnType<typeof createOpenRouterAdapter> | null = null
 
 export function getHostAdapter() {
   if (!adapter) {
     adapter = createOpenRouterAdapter({
-      id: 'gemini-flash-host',
+      id: 'gemini-pro-host',
       model: HOST_MODEL,
     })
   }

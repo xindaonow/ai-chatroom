@@ -68,7 +68,10 @@ export function createOrchestrator(args: {
     return roundFinalized.get(roundId) ?? Promise.resolve()
   }
 
-  function createSession(modelIds?: string[]): Session {
+  function createSession(
+    modelIds?: string[],
+    mode: 'free' | 'brainstorm' | 'consensus' = 'free',
+  ): Session {
     const agents = modelIds && modelIds.length >= 2
       ? modelIds.map((m, i) => buildAgentFromModelId(m, i))
       : defaultAgents
@@ -77,6 +80,7 @@ export function createOrchestrator(args: {
       id: newId('s'),
       agents: agents.map((a) => ({ id: a.id, label: a.label, model: a.model })),
       title: null,
+      mode,
       createdAt: now,
       updatedAt: now,
     }
@@ -142,6 +146,8 @@ export function createOrchestrator(args: {
       visibleTo: initialVisibilityForUser(),
       rendered: { '*': { role: 'user', content: args.userText } },
       prompt: null,
+      inputTokens: null,
+      outputTokens: null,
       createdAt: now,
       finalizedAt: now,
     }
@@ -164,6 +170,8 @@ export function createOrchestrator(args: {
         visibleTo: initialVisibilityForAssistant(agent.id),
         rendered: null,
         prompt: null,
+        inputTokens: null,
+        outputTokens: null,
         createdAt: Date.now(),
         finalizedAt: null,
       }
@@ -306,6 +314,13 @@ export function createOrchestrator(args: {
             // enough for our scale; for higher rate we'd batch.
             repo.appendMessageContent(message.id, ev.text)
             for (const sub of subscribers) sub(ev)
+          } else if (ev.type === 'usage') {
+            // Provider reported its final token counts. Persist now so
+            // the bubble can display them as soon as the next snapshot
+            // refresh hits the frontend. Not forwarded to SSE subscribers
+            // — the frontend reads `inputTokens`/`outputTokens` from the
+            // finalized message row instead.
+            repo.setMessageUsage(message.id, ev.inputTokens, ev.outputTokens)
           } else if (ev.type === 'done') {
             stream.state = 'done'
             finalizeThisMessage()

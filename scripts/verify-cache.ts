@@ -37,6 +37,7 @@ const session: Session = {
   id: newId('s'),
   agents: AGENTS.map((id) => ({ id, label: id, model: id })),
   title: null,
+  mode: 'free',
   createdAt: 1,
   updatedAt: 1,
 }
@@ -69,6 +70,8 @@ function addRound(text: string, idx: number) {
     visibleTo: initialVisibilityForUser(),
     rendered: { '*': { role: 'user', content: text } },
     prompt: null,
+    inputTokens: null,
+    outputTokens: null,
     createdAt: ts(),
     finalizedAt: ts(),
   }
@@ -87,6 +90,8 @@ function addRound(text: string, idx: number) {
       visibleTo: initialVisibilityForAssistant(agentId),
       rendered: null,
       prompt: null,
+      inputTokens: null,
+      outputTokens: null,
       createdAt: ts(),
       finalizedAt: null,
     }

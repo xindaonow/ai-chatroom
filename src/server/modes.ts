@@ -229,7 +229,7 @@ Hard rules:
 // ── Host model — orchestrator-state recaps + final synthesis ──────────────────
 
 /**
- * System prompt used by the dedicated "Host" model (Gemini 3 Flash) for both
+ * System prompt used by the dedicated "Host" model (Gemini 3.1 Pro) for both
  * its mid-run recap calls (extractor.ts) and the end-of-run synthesis
  * (runner.ts). The Host is not a debate participant — it observes, tracks,
  * and reports. Keeping the persona stable across both call sites is what

@@ -28,6 +28,8 @@ type MessageRow = {
   visible_to: string
   rendered: string | null
   prompt: string | null
+  input_tokens: number | null
+  output_tokens: number | null
   created_at: number
   finalized_at: number | null
 }
@@ -44,6 +46,7 @@ type SessionRow = {
   id: string
   agents: string
   title: string | null
+  mode: string
   created_at: number
   updated_at: number
 }
@@ -55,10 +58,6 @@ type ConsensusRunRow = {
   session_id: string
   question: string
   total_rounds: number
-  consensus_findings: string
-  remaining_disagreements: string
-  confidence_range: string
-  practical_implications: string
   raw_text: string
   transcript: string
   rounds_json: string
@@ -91,6 +90,8 @@ function rowToMessage(r: MessageRow): Message {
     visibleTo: JSON.parse(r.visible_to),
     rendered: r.rendered ? JSON.parse(r.rendered) : null,
     prompt: r.prompt ? JSON.parse(r.prompt) : null,
+    inputTokens: r.input_tokens,
+    outputTokens: r.output_tokens,
     createdAt: r.created_at,
     finalizedAt: r.finalized_at,
   })
@@ -106,11 +107,16 @@ function rowToRound(r: RoundRow): Round {
   })
 }
 
+function normalizeMode(raw: string | null | undefined): 'free' | 'brainstorm' | 'consensus' {
+  return raw === 'brainstorm' || raw === 'consensus' ? raw : 'free'
+}
+
 function rowToSession(r: SessionRow): Session {
   return SessionSchema.parse({
     id: r.id,
     agents: JSON.parse(r.agents),
     title: r.title,
+    mode: normalizeMode(r.mode),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   })
@@ -121,6 +127,7 @@ function rowToSessionListItem(r: SessionListRow): SessionListItem {
     id: r.id,
     title: r.title,
     agents: JSON.parse(r.agents),
+    mode: normalizeMode(r.mode),
     roundCount: r.round_count,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -128,19 +135,12 @@ function rowToSessionListItem(r: SessionListRow): SessionListItem {
 }
 
 function rowToConsensusRun(r: ConsensusRunRow): ConsensusRunResult {
-  const finalSynthesis: ConsensusFinalSynthesis = {
-    consensusFindings: r.consensus_findings,
-    remainingDisagreements: r.remaining_disagreements,
-    confidenceRange: r.confidence_range,
-    practicalImplications: r.practical_implications,
-    rawText: r.raw_text,
-  }
   return {
     sessionId: r.session_id,
     question: r.question,
     modelIds: JSON.parse(r.model_ids) as string[],
     rounds: JSON.parse(r.rounds_json) as ConsensusRoundRecord[],
-    finalSynthesis,
+    finalSynthesis: { rawText: r.raw_text },
     totalRounds: r.total_rounds,
     transcript: r.transcript,
   }
@@ -165,11 +165,12 @@ export function createRepo(db: Database) {
     // ── Sessions ──────────────────────────────────────────────────────────────
     insertSession(s: Session): void {
       db.prepare(
-        'INSERT INTO sessions (id, agents, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO sessions (id, agents, title, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
       ).run(
         s.id,
         JSON.stringify(s.agents),
         s.title,
+        s.mode,
         s.createdAt,
         s.updatedAt,
       )
@@ -291,8 +292,8 @@ export function createRepo(db: Database) {
     insertMessage(m: Message): void {
       db.prepare(
         `INSERT INTO messages
-          (id, session_id, round_id, round_index, role, agent_id, content, status, visible_to, rendered, prompt, created_at, finalized_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, session_id, round_id, round_index, role, agent_id, content, status, visible_to, rendered, prompt, input_tokens, output_tokens, created_at, finalized_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         m.id,
         m.sessionId,
@@ -305,9 +306,22 @@ export function createRepo(db: Database) {
         JSON.stringify(m.visibleTo),
         m.rendered ? JSON.stringify(m.rendered) : null,
         m.prompt ? JSON.stringify(m.prompt) : null,
+        m.inputTokens,
+        m.outputTokens,
         m.createdAt,
         m.finalizedAt,
       )
+    },
+
+    /**
+     * Persist the provider's reported token usage for an assistant message.
+     * Called from the orchestrator when the adapter yields a `usage` event,
+     * just before `done`. Powers the per-bubble token-count display.
+     */
+    setMessageUsage(id: string, inputTokens: number, outputTokens: number): void {
+      db.prepare(
+        'UPDATE messages SET input_tokens = ?, output_tokens = ? WHERE id = ?',
+      ).run(inputTokens, outputTokens, id)
     },
 
     /**
@@ -376,6 +390,8 @@ export function createRepo(db: Database) {
              visible_to = ?,
              rendered = NULL,
              prompt = NULL,
+             input_tokens = NULL,
+             output_tokens = NULL,
              finalized_at = NULL
          WHERE id = ?`,
       ).run(JSON.stringify(args.visibleTo), id)
@@ -451,19 +467,13 @@ export function createRepo(db: Database) {
       db.prepare(
         `INSERT INTO consensus_runs
           (id, session_id, question, total_rounds,
-           consensus_findings, remaining_disagreements, confidence_range,
-           practical_implications, raw_text, transcript,
-           rounds_json, model_ids, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           raw_text, transcript, rounds_json, model_ids, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         args.id,
         args.sessionId,
         result.question,
         result.totalRounds,
-        result.finalSynthesis.consensusFindings,
-        result.finalSynthesis.remainingDisagreements,
-        result.finalSynthesis.confidenceRange,
-        result.finalSynthesis.practicalImplications,
         result.finalSynthesis.rawText,
         result.transcript,
         JSON.stringify(result.rounds),

@@ -11,7 +11,7 @@ const SUGGESTIONS = [
 // Backend pins this to the Host model (src/server/host.ts) regardless of
 // which participants the user picked. Displayed verbatim in the popover so
 // the user knows whose voice they're getting.
-const HOST_LABEL = 'Gemini 3 Flash (Host)'
+const HOST_LABEL = 'Gemini 3.1 Pro (Host)'
 
 export function SummarizeButton({ disabled = false }: { disabled?: boolean } = {}) {
   const [open, setOpen] = useState(false)

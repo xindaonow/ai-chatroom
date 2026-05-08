@@ -34,6 +34,15 @@ export function createMockAdapter(opts: {
           yield { type: 'chunk', text: text.slice(i, i + chunkSize) }
           if (delayMs > 0) await sleep(delayMs)
         }
+        // Synthesize plausible token counts (~4 chars per token, plus a
+        // fixed input baseline) so consumers exercising the mock can
+        // verify the usage-event flow end-to-end.
+        const inputApprox = messages.reduce(
+          (n, m) => n + Math.ceil(m.content.length / 4),
+          0,
+        )
+        const outputApprox = Math.ceil(text.length / 4)
+        yield { type: 'usage', inputTokens: inputApprox, outputTokens: outputApprox }
         yield { type: 'done' }
       } catch (e) {
         yield { type: 'error', error: (e as Error).message }
