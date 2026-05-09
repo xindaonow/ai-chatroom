@@ -13,12 +13,11 @@ import { Composer } from './components/Composer'
 import { Timeline } from './components/Timeline'
 import { ModeSelector } from './components/ModeSelector'
 import { ModelPicker } from './components/ModelPicker'
-import { ConsensusProgress } from './components/ConsensusProgress'
-import { FinalSynthesis } from './components/FinalSynthesis'
-import { ImportButton } from './components/ImportButton'
-import { SummaryPanel } from './components/SummaryPanel'
+import { ViewModeToggle } from './components/ViewModeToggle'
+import { OverflowMenu } from './components/OverflowMenu'
 import { SessionsSidebar } from './components/SessionsSidebar'
 import { PromptInspector } from './components/PromptInspector'
+import { SummarizePopover } from './components/SummarizePopover'
 import { exportAsJson, downloadText } from './utils/export'
 import type { Message } from '@shared/index'
 
@@ -44,9 +43,9 @@ export function App() {
   const rounds = useStore((s) => s.rounds)
   const messages = useStore((s) => s.messages)
   const [busy, setBusy] = useState(false)
-  const consensusProgress = useStore((s) => s.consensusProgress)
   const consensusRun = useStore((s) => s.consensusRun)
   const summary = useStore((s) => s.summary)
+  const [summarizeOpen, setSummarizeOpen] = useState(false)
 
   function handleSave() {
     if (!session || rounds.length === 0) return
@@ -289,9 +288,32 @@ export function App() {
 
   return (
     <div className="flex flex-col h-full">
-      <header className="border-b border-parchment-300 px-5 py-3 flex items-center gap-4 bg-parchment-50/80 backdrop-blur-sm">
-        <div className="flex items-baseline">
-          <span className="font-sans text-[22px] font-semibold tracking-tight text-parchment-900">AI Chatroom</span>
+      <header className="relative z-30 border-b border-parchment-300 px-5 py-3 flex items-center gap-4 bg-parchment-50/80 backdrop-blur-sm">
+        {/* Wordmark + current topic on a single line. session.title is
+            derived from the first user message (orchestrator.ts startRound),
+            so it always reflects the conversation topic. min-w-0 + truncate
+            let long titles ellipsis cleanly when the header is space-
+            constrained; the wordmark itself never shrinks. */}
+        <div className="flex items-baseline gap-2.5 min-w-0">
+          <span className="font-serif text-[22px] font-semibold tracking-tight text-parchment-900 flex-shrink-0">
+            AI Chatroom
+          </span>
+          {session?.title && (
+            <>
+              <span
+                aria-hidden="true"
+                className="text-parchment-400 text-[14px] flex-shrink-0"
+              >
+                ·
+              </span>
+              <span
+                className="font-sans text-[14px] text-parchment-600 truncate min-w-0"
+                title={session.title}
+              >
+                {session.title}
+              </span>
+            </>
+          )}
         </div>
 
         <div className="ml-auto flex items-center gap-2">
@@ -302,26 +324,38 @@ export function App() {
             refreshKey={sidebarRefresh}
           />
           <ModeSelector />
+          <ViewModeToggle />
           <ModelPicker onApply={handleApplyModels} />
-          <ImportButton />
-          <button
-            onClick={handleSave}
-            disabled={rounds.length === 0}
-            title="Export JSON"
-            className="px-3 py-1.5 rounded-md border border-parchment-300 bg-white font-sans text-[12px] text-parchment-700 font-medium hover:border-parchment-400 hover:bg-parchment-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            Export
-          </button>
+          <OverflowMenu onExport={handleSave} exportDisabled={rounds.length === 0} />
         </div>
       </header>
-      <Timeline />
-      {consensusRun && <FinalSynthesis run={consensusRun} />}
-      <SummaryPanel />
-      <Composer disabled={busy} onSend={handleSend} />
-      {busy && mode === 'consensus' && (
-        <ConsensusProgress messages={consensusProgress} />
-      )}
+      {/* Timeline + Composer share a relative container so Composer can
+          float absolutely on top of Timeline. Timeline still owns the
+          scroll region; Composer is just a layer above it. The Summarize
+          action is rendered INSIDE Timeline at the conversation's tail
+          (it operates on the transcript, not on the next message). */}
+      <div className="relative flex-1 min-h-0">
+        <Timeline
+          onSummarize={() => setSummarizeOpen(true)}
+          summarizeDisabled={
+            !session ||
+            rounds.length === 0 ||
+            summary?.status === 'streaming' ||
+            busy
+          }
+        />
+        <Composer disabled={busy} onSend={handleSend} />
+      </div>
+      {/* ConsensusProgress overlay was here. Removed because the timeline
+          itself proves progress (rounds appearing, agent bubbles streaming,
+          final synthesis card emerging) — a separate floating banner was
+          redundant + violated the editorial direction (glassmorphism +
+          colored status dots). The store plumbing for `consensusProgress`
+          stays in place so server progress messages still flow; we just
+          stopped rendering them. Error states will get inline/toast
+          treatment if needed later. */}
       <PromptInspector />
+      <SummarizePopover open={summarizeOpen} onClose={() => setSummarizeOpen(false)} />
     </div>
   )
 }

@@ -10,8 +10,8 @@ html, body, #root {
 
 body {
   font-family: 'Noto Sans', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
-  background-color: #F7F4EE;
-  color: #1A1814;
+  background-color: oklch(0.965 0.008 80); /* parchment-100 */
+  color: oklch(0.140 0.008 80);            /* parchment-900 */
 }
 
 /* Paper grain texture layered under everything */
@@ -31,8 +31,8 @@ body::before {
 /* Thin warm scrollbar */
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #C8C4BC; border-radius: 99px; }
-::-webkit-scrollbar-thumb:hover { background: #A09890; }
+::-webkit-scrollbar-thumb { background: oklch(0.795 0.012 80); border-radius: 99px; }   /* parchment-400 */
+::-webkit-scrollbar-thumb:hover { background: oklch(0.660 0.012 80); }                  /* parchment-500 */
 
 /* Streaming cursor */
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }

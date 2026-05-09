@@ -37,6 +37,11 @@ type State = {
   messages: Message[]
   streaming: Map<string, StreamState>
   mode: DiscussionMode
+  /** UI density for AI response bubbles. `normal` = generous max-h (480px)
+   *  with Show-more for overflow; `compact` = small max-h (240px) for
+   *  multi-AI scanning at a glance. Lives in zustand only (not persisted
+   *  across reloads). */
+  viewMode: 'normal' | 'compact'
   consensusMaxRounds: number
   /** Last completed consensus run, keyed by sessionId. Cleared when session changes. */
   consensusRun: ConsensusRunResult | null
@@ -52,6 +57,7 @@ type State = {
   setPresets: (p: Record<string, PresetSpec[]>) => void
   setSelectedModelIds: (ids: string[]) => void
   setMode: (m: DiscussionMode) => void
+  setViewMode: (v: 'normal' | 'compact') => void
   setConsensusMaxRounds: (n: number) => void
   setSnapshot: (s: { session: Session | null; rounds: Round[]; messages: Message[] }) => void
   appendMessages: (rounds: Round[], messages: Message[]) => void
@@ -82,6 +88,7 @@ export const useStore = create<State>((set) => ({
   messages: [],
   streaming: new Map(),
   mode: 'free',
+  viewMode: 'normal',
   consensusMaxRounds: 3,
   consensusRun: null,
   consensusProgress: [],
@@ -93,6 +100,7 @@ export const useStore = create<State>((set) => ({
   setPresets: (presets) => set({ presets }),
   setSelectedModelIds: (selectedModelIds) => set({ selectedModelIds }),
   setMode: (mode) => set({ mode }),
+  setViewMode: (viewMode) => set({ viewMode }),
   setConsensusMaxRounds: (consensusMaxRounds) => set({ consensusMaxRounds }),
   setSnapshot: ({ session, rounds, messages }) =>
     set((s) => {

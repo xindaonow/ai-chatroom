@@ -13,8 +13,10 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      // Dev backend runs on :3001 so `bun run start` (prod, :3000) and
+      // `bun run dev` can coexist without port conflict.
       '/api/': {
-        target: 'http://localhost:3000',
+        target: 'http://localhost:3001',
         changeOrigin: true,
       },
     },

@@ -2,18 +2,43 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { importSession } from '../api'
 
-export function ImportButton() {
+type Props = {
+  onExport: () => void
+  exportDisabled: boolean
+}
+
+/**
+ * Header overflow menu — collapses rare session-level actions (Import / Export)
+ * behind a single ⋯ trigger so the always-needed controls (Mode / Models /
+ * Sessions) own the visible header chrome. Keeps the import error toast
+ * (role="alert", required by QA ISSUE-004).
+ */
+export function OverflowMenu({ onExport, exportDisabled }: Props) {
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
   const setAgents = useStore((s) => s.setAgents)
   const setSnapshot = useStore((s) => s.setSnapshot)
   const setMode = useStore((s) => s.setMode)
   const setConsensusRun = useStore((s) => s.setConsensusRun)
   const setSelectedModelIds = useStore((s) => s.setSelectedModelIds)
   const loadSummary = useStore((s) => s.loadSummary)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
-  // Auto-dismiss any error toast after a few seconds so it doesn't linger.
+  useEffect(() => {
+    if (!open) return
+    function onMouseDown(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [open])
+
+  // Auto-dismiss the error toast so it doesn't linger.
   useEffect(() => {
     if (!error) return
     const t = setTimeout(() => setError(null), 6000)
@@ -33,8 +58,6 @@ export function ImportButton() {
       }
       const result = await importSession(text)
       setAgents(result.agents)
-      // Sync the picker's selected model IDs so the header pill + dropdown
-      // reflect the imported models, not whatever was selected before.
       setSelectedModelIds(result.agents.map((a) => a.model))
       setSnapshot({
         session: result.session,
@@ -42,15 +65,10 @@ export function ImportButton() {
         messages: result.messages,
       })
       setMode(result.mode)
-      // setSnapshot clears consensusRun + summary on session change; restore
-      // both after so the imported synthesis and Summarize card show up.
       setConsensusRun(result.consensusRun)
       loadSummary(result.summary ?? null)
     } catch (e) {
       const msg = (e as Error).message
-      // Inline toast + console.error so silent failures (the original UX
-      // had only a native alert that test harnesses dismissed without
-      // notice — QA issue 004) become visible to humans AND scripts.
       console.error('Import failed:', msg)
       setError(msg)
     } finally {
@@ -61,7 +79,7 @@ export function ImportButton() {
   }
 
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <input
         ref={inputRef}
         type="file"
@@ -72,14 +90,55 @@ export function ImportButton() {
         }}
         className="hidden"
       />
+
       <button
-        onClick={() => inputRef.current?.click()}
+        onClick={() => setOpen((o) => !o)}
         disabled={busy}
-        title="Import a previously-exported JSON to continue the conversation"
-        className="px-3 py-1.5 rounded-md border border-parchment-300 bg-white font-sans text-[12px] text-parchment-700 font-medium hover:border-parchment-400 hover:bg-parchment-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        aria-label="More actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="More actions"
+        className={[
+          'w-8 h-8 flex items-center justify-center rounded-md border font-sans text-[18px] leading-none transition-colors',
+          open
+            ? 'border-parchment-400 bg-parchment-100 text-parchment-900'
+            : 'border-parchment-300 bg-white text-parchment-700 hover:border-parchment-400 hover:bg-parchment-50',
+          busy ? 'opacity-30 cursor-not-allowed' : '',
+        ].join(' ')}
       >
-        {busy ? 'Importing…' : 'Import'}
+        ⋯
       </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-1.5 z-50 min-w-[10rem] rounded-md border border-parchment-200 bg-white shadow-lg shadow-parchment-900/10 py-1"
+        >
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              inputRef.current?.click()
+            }}
+            disabled={busy}
+            className="w-full px-3 py-1.5 text-left font-sans text-[13px] text-parchment-700 hover:bg-parchment-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {busy ? 'Importing…' : 'Import'}
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              onExport()
+            }}
+            disabled={exportDisabled}
+            className="w-full px-3 py-1.5 text-left font-sans text-[13px] text-parchment-700 hover:bg-parchment-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Export
+          </button>
+        </div>
+      )}
+
       {error && (
         <div
           role="alert"

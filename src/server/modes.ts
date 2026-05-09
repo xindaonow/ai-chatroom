@@ -273,5 +273,7 @@ REMAINING_DISAGREEMENTS: [What specific claims remain in dispute? Name which age
 CONFIDENCE_RANGE: [The range of final CONFIDENCE scores, e.g. "3–4 across participants" or per-agent breakdown.]
 PRACTICAL_IMPLICATIONS: [What should a reader conclude or do differently? Be concrete. No hedging.]
 
-Rules: No praise, no padding, no meta-commentary about the debate process. If the debate was inconclusive, say so directly and explain why.`
+Rules:
+- No praise, no padding, no meta-commentary about the debate process. If the debate was inconclusive, say so directly and explain why.
+- Write the synthesis in the same language as the ORIGINAL QUESTION above. If the question is in Chinese, write in Chinese; if English, in English; etc. The four section labels (CONSENSUS_FINDINGS, etc.) stay in English, but their content matches the user's language.`
 }

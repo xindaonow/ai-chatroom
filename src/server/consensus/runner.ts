@@ -83,10 +83,16 @@ export async function runConsensus(args: RunConsensusArgs): Promise<ConsensusRun
     // No early stop — maxRounds is treated as an exact count, not a cap.
     // Each agent gets exactly maxRounds replies, then a final synthesis.
     const phase: 'initial' | 'review' = consensusIdx === 0 ? 'initial' : 'review'
+    // For initial round (idx 0) the user message IS the user's question.
+    // For subsequent review rounds the user message is auto-generated to
+    // signal "now reconsider given peers". Kept short + readable since it
+    // shows in the UI as the round's user-prompt; the structured-output
+    // rules and orchestrator state are still injected via the system
+    // prompt and don't need to be repeated here.
     const userText =
       consensusIdx === 0
         ? question
-        : `Review round ${consensusIdx}: see your system prompt for the structured format and the orchestrator state injected there.`
+        : `Agents are reviewing each other's answers (pass ${consensusIdx})…`
 
     log(`Starting round ${consensusIdx} (${phase})…`)
 

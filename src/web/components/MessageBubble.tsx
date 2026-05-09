@@ -1,15 +1,19 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { agentAccent } from '../theme'
 import { getSession, openStream, retryMessage } from '../api'
 import type { Message } from '@shared/index'
 
+// Per-bubble height caps. Long responses get clipped with a fade + Show
+// more so length disparity across columns doesn't break the multi-AI
+// comparison. Compact mode is the optional dense-card view; normal is
+// the default editorial-reading height.
+const MAX_HEIGHT_NORMAL = 480
+const MAX_HEIGHT_COMPACT = 240
+
 type Props = {
   message: Message
   agentIndex?: number
-  /** When true, hide the body but keep the header. Set by RoundBlock when
-   *  the user collapses a whole round so all AI bubbles fold together. */
-  collapsed?: boolean
   /** When true, drop the card chrome (rounded corners, white bg, border,
    *  shadow, internal padding) so the bubble blends into a parent round
    *  container. AI bubbles keep their accent stripe + header band so each
@@ -17,7 +21,7 @@ type Props = {
   merged?: boolean
 }
 
-export function MessageBubble({ message, agentIndex = 0, collapsed = false, merged = false }: Props) {
+export function MessageBubble({ message, agentIndex = 0, merged = false }: Props) {
   const stream = useStore((s) => s.streaming.get(message.id))
   const agentLabel = useStore((s) =>
     message.agentId
@@ -31,7 +35,15 @@ export function MessageBubble({ message, agentIndex = 0, collapsed = false, merg
   const markError = useStore((s) => s.markError)
   const clearStreaming = useStore((s) => s.clearStreaming)
   const openPromptInspector = useStore((s) => s.openPromptInspector)
+  const viewMode = useStore((s) => s.viewMode)
   const [retrying, setRetrying] = useState(false)
+
+  // Adaptive cap. Defaults collapsed; user clicks Show more to read the
+  // full response inline (no modal, no scroll-region change).
+  const [expanded, setExpanded] = useState(false)
+  const [hasOverflow, setHasOverflow] = useState(false)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const maxHeight = viewMode === 'compact' ? MAX_HEIGHT_COMPACT : MAX_HEIGHT_NORMAL
 
   const isStreaming = stream?.status === 'streaming'
   const isError = stream?.status === 'error' || message.status === 'error'
@@ -63,6 +75,15 @@ export function MessageBubble({ message, agentIndex = 0, collapsed = false, merg
       setTtft(ttftRef.current - message.createdAt)
     }
   }, [isStreaming, message.createdAt, ttft])
+
+  // Re-measure overflow whenever content changes (streaming chunks +
+  // viewMode toggle change the threshold). scrollHeight reflects natural
+  // (uncapped) content height, even when we apply max-height + clip.
+  useLayoutEffect(() => {
+    const el = bodyRef.current
+    if (!el) return
+    setHasOverflow(el.scrollHeight > maxHeight + 8)
+  }, [liveContent, maxHeight])
 
   const isUser = message.role === 'user'
   // Only show a duration when the elapsed time is actually positive — for
@@ -113,16 +134,51 @@ export function MessageBubble({ message, agentIndex = 0, collapsed = false, merg
 
   // ── User message ──────────────────────────────────────────────────────────
   if (isUser) {
+    // Consensus review rounds inject an auto-generated user message in
+    // place of real user typing. Detect both the current ("Agents are
+    // reviewing each other's answers (pass N)…") and the legacy
+    // ("Review round N: see your system prompt…") formats so old
+    // sessions also render the friendly text. After the round finalizes
+    // we use the past-tense display form.
+    function detectAutoReviewPrompt(content: string): number | null {
+      const m1 = content.match(
+        /^Agents are reviewing each other's answers \(pass (\d+)\)/,
+      )
+      if (m1) return Number(m1[1])
+      const m2 = content.match(/^Review round (\d+): see your system prompt/)
+      if (m2) return Number(m2[1])
+      return null
+    }
+    const reviewPassNum = detectAutoReviewPrompt(message.content)
+    const isAutoReviewPrompt = reviewPassNum !== null
+    const isRoundFinalized = message.status === 'finalized'
+    const displayContent = isAutoReviewPrompt
+      ? isRoundFinalized
+        ? `Agents reviewed each other's answers and generated new responses (pass ${reviewPassNum})`
+        : `Agents are reviewing each other's answers and generating new responses (pass ${reviewPassNum})…`
+      : message.content
     return (
       <div
-        className={
+        className={[
+          // Cap user-input width so long questions don't stretch across
+          // a wide viewport — keeps reading line-length sane (600px ≈
+          // 60-70 chars at 12px). The AI grid below is unaffected; it
+          // still spans the full timeline width.
+          'max-w-[600px]',
           merged
             ? ''
-            : 'rounded-xl bg-white border border-parchment-200 px-4 py-3 shadow-sm'
-        }
+            : 'rounded-xl bg-white border border-parchment-200 px-4 py-3 shadow-sm',
+        ].join(' ')}
       >
-        <div className="font-sans text-[14px] leading-relaxed text-parchment-900 whitespace-pre-wrap">
-          {message.content}
+        <div
+          className={[
+            'font-sans text-[12px] leading-relaxed whitespace-pre-wrap',
+            isAutoReviewPrompt
+              ? 'italic text-parchment-500'
+              : 'text-parchment-900',
+          ].join(' ')}
+        >
+          {displayContent}
         </div>
       </div>
     )
@@ -137,10 +193,19 @@ export function MessageBubble({ message, agentIndex = 0, collapsed = false, merg
           : 'rounded-xl bg-white border border-parchment-200 shadow-sm overflow-hidden'
       }
     >
-      {/* Agent header */}
+      {/* Metadata bar.
+          - Normal mode: parchment-50 tinted band, edge-to-edge bottom
+            border separates it from the white body.
+          - Compact mode: same bg as body (white), no edge-to-edge border;
+            an inset hairline below this section marks the split between
+            metadata and content without breaking the flat single-bg card. */}
       <div
-        className="px-4 pt-3 pb-2 flex items-center justify-between"
-        style={{ backgroundColor: accent.bg }}
+        className={[
+          'px-4 pt-2.5 pb-2 flex items-center justify-between',
+          viewMode === 'compact'
+            ? 'bg-white'
+            : 'bg-parchment-50 border-b border-parchment-200/80',
+        ].join(' ')}
       >
         <div className="flex items-center gap-1.5">
           <span
@@ -161,24 +226,36 @@ export function MessageBubble({ message, agentIndex = 0, collapsed = false, merg
           </span>
         </div>
 
-        {/* Status badge */}
+        {/* Status badge. While the response isn't complete (connecting /
+            waiting for first token / streaming chunks) we show a 3-dot
+            pulsing wave alongside the elapsed-time text. The single
+            colored alarm/success dots were removed in favor of the
+            unified wave — it reads as "loading" without invoking
+            "warning"/"success" semantics that don't fit editorial. */}
         <div className="font-sans text-[11px] tabular-nums flex items-center gap-1.5">
+          {(isConnecting || isWaiting || (isStreaming && !isWaiting)) && (
+            <span className="flex items-center gap-1" aria-label="Generating response">
+              <span className="w-1 h-1 rounded-full bg-parchment-500 animate-pulse" />
+              <span
+                className="w-1 h-1 rounded-full bg-parchment-500 animate-pulse"
+                style={{ animationDelay: '200ms' }}
+              />
+              <span
+                className="w-1 h-1 rounded-full bg-parchment-500 animate-pulse"
+                style={{ animationDelay: '400ms' }}
+              />
+            </span>
+          )}
           {isConnecting && (
-            <span className="text-parchment-400">connecting…</span>
+            <span className="text-parchment-500">connecting…</span>
           )}
           {isWaiting && (
-            <>
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-              <span className="text-amber-700 font-medium">waiting</span>
-              <span className="text-parchment-500">{elapsed}s</span>
-            </>
+            <span className="text-parchment-500">waiting · {elapsed}s</span>
           )}
           {isStreaming && !isWaiting && (
             <>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-emerald-700 font-medium">streaming</span>
               {ttft !== null && (
-                <span className="text-parchment-400">· ttft {(ttft / 1000).toFixed(1)}s</span>
+                <span className="text-parchment-400">ttft {(ttft / 1000).toFixed(1)}s ·</span>
               )}
               <span className="text-parchment-500">{elapsed}s</span>
             </>
@@ -231,31 +308,70 @@ export function MessageBubble({ message, agentIndex = 0, collapsed = false, merg
         </div>
       </div>
 
-      {/* Content — capped height with internal scroll for long responses.
-          Hidden when the bubble is collapsed via the chevron. */}
-      {!collapsed && (
-        <div className="px-4 py-3 max-h-[60vh] overflow-y-auto">
-          {isWaiting ? (
-            <div className="flex items-center gap-2 text-parchment-400 py-0.5 select-none">
-              <span className="text-base tracking-widest">⋯</span>
-            </div>
-          ) : isError ? (
-            <div className="text-[13px] text-red-600 break-all leading-relaxed">
-              {stream?.error ?? message.content}
-            </div>
-          ) : (
-            <div className="font-sans text-[14px] leading-relaxed text-parchment-900 whitespace-pre-wrap">
-              {liveContent}
-              {isStreaming && (
-                <span
-                  className="inline-block w-[2px] h-[1.1em] ml-0.5 align-middle cursor-blink"
-                  style={{ backgroundColor: accent.stripe }}
-                />
-              )}
-            </div>
-          )}
-        </div>
+      {/* Inset hairline (compact mode only) — replaces the edge-to-edge
+          border-b on the metadata bar. Doesn't reach the card edges, so
+          the white card reads as one continuous surface with a subtle
+          internal split. */}
+      {viewMode === 'compact' && (
+        <div
+          aria-hidden="true"
+          className="mx-4 border-t border-parchment-200/70"
+        />
       )}
+
+      {/* Content. Normal mode: natural height, no cap. Compact mode:
+          cap to MAX_HEIGHT_COMPACT with a fade gradient at the bottom and
+          the entire body becomes clickable to expand inline. No explicit
+          "Show more" button — affordance is the clickable card surface +
+          cursor-pointer hint when overflowing. */}
+      {(() => {
+        const compactCapped =
+          viewMode === 'compact' && !expanded && hasOverflow
+        return (
+          <div
+            ref={bodyRef}
+            onClick={
+              compactCapped ? () => setExpanded(true) : undefined
+            }
+            className={[
+              'px-4 py-3 relative',
+              compactCapped ? 'cursor-pointer' : '',
+            ].join(' ')}
+            style={
+              compactCapped
+                ? { maxHeight: maxHeight, overflow: 'hidden' }
+                : undefined
+            }
+          >
+            {isWaiting ? (
+              // Body kept empty while waiting — the 3-dot loading wave in
+              // the header already conveys "generating", no need to
+              // duplicate the indicator inside the body.
+              <div className="h-4" aria-label="Generating response" />
+            ) : isError ? (
+              <div className="text-[13px] text-red-600 break-all leading-relaxed">
+                {stream?.error ?? message.content}
+              </div>
+            ) : (
+              <div className="font-sans text-[12px] leading-relaxed text-parchment-900 whitespace-pre-wrap">
+                {liveContent}
+                {isStreaming && (
+                  <span
+                    className="inline-block w-[2px] h-[1.1em] ml-0.5 align-middle cursor-blink"
+                    style={{ backgroundColor: accent.stripe }}
+                  />
+                )}
+              </div>
+            )}
+            {compactCapped && (
+              <div
+                aria-hidden="true"
+                className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-white via-white/85 to-transparent pointer-events-none"
+              />
+            )}
+          </div>
+        )
+      })()}
     </div>
   )
 }

@@ -4,7 +4,7 @@
 
 让多个 AI 模型在同一个房间里互相看见、互相回应——一个问题抛进去，看它们如何对比、挑战、收敛。
 
-![AI Chatroom 截图](./docs/images/screenshot.png)
+![AI Chatroom 截图](./docs/images/screenshot.zh.png)
 
 > **English** → [README.md](./README.md)
 

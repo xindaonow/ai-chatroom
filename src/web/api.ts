@@ -11,7 +11,11 @@ import type {
 const API = '/api'
 // SSE streams must bypass the Vite proxy (which drops long-lived connections).
 // In dev we connect directly to the backend; in prod the origin is the same.
-const STREAM_ORIGIN = import.meta.env.DEV ? 'http://localhost:3000' : ''
+// Dev mode: SSE EventSource bypasses the Vite proxy (some proxies misbehave
+// on long-lived streams) and hits the dev backend directly on :3001 — the
+// port `bun run dev:server` listens on, distinct from `bun run start`'s
+// :3000 so the two can coexist.
+const STREAM_ORIGIN = import.meta.env.DEV ? 'http://localhost:3001' : ''
 
 export type AgentInfo = { id: string; label: string; model: string }
 
