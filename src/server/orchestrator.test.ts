@@ -233,4 +233,138 @@ describe('orchestrator: retry message', () => {
     // Stream is in flight (200ms delay) → still streaming.
     expect(() => orch.retryMessage(target.id)).toThrow(/currently streaming/)
   })
+
+  test('after retry, next round peer sees NEW content (not stale pre-retry)', async () => {
+    // Bug repro: user reported that after retrying agent A's response,
+    // round N+1's other agents still saw the pre-retry content of A.
+    // We verify three layers: in-memory repo reads, raw SQL columns,
+    // and the API-shaped session payload that the frontend consumes.
+    const db = resetDbForTests()
+    const repo = createRepo(db)
+    let aReply = 'A-original'
+    const agents: AgentSpec[] = [
+      {
+        id: 'claude',
+        publicId: 'agent-A',
+        label: 'A',
+        model: 'mock/claude',
+        adapter: createMockAdapter({ id: 'claude', delayMs: 3, reply: () => aReply }),
+      },
+      {
+        id: 'gemini',
+        publicId: 'agent-B',
+        label: 'B',
+        model: 'mock/gemini',
+        adapter: createMockAdapter({ id: 'gemini', delayMs: 3, reply: () => 'B-reply' }),
+      },
+      {
+        id: 'gpt',
+        publicId: 'agent-C',
+        label: 'C',
+        model: 'mock/gpt',
+        adapter: createMockAdapter({ id: 'gpt', delayMs: 3, reply: () => 'C-reply' }),
+      },
+    ]
+    const orch = createOrchestrator({ repo, agents })
+    const session = orch.createSession()
+
+    // Round 0
+    const r0 = orch.startRound({ sessionId: session.id, userText: 'q1', mode: 'free' })
+    await orch.waitForRoundFinalized(r0.round.id)
+
+    const aMsg = r0.assistantMessages.find((m) => m.agentId === 'claude')!
+    expect(repo.getMessage(aMsg.id)!.content).toBe('A-original')
+
+    // Flip A's reply, then retry.
+    aReply = 'A-RETRIED'
+    orch.retryMessage(aMsg.id)
+    let i = 0
+    while (i++ < 100) {
+      const m = repo.getMessage(aMsg.id)!
+      if (m.status === 'finalized') break
+      await new Promise((r) => setTimeout(r, 10))
+    }
+
+    // ── Layer 1: backend in-memory (repo / orchestrator reads) ──────────────
+    const aFresh = repo.getMessage(aMsg.id)!
+    expect(aFresh.content).toBe('A-RETRIED')
+    expect(aFresh.rendered).not.toBeNull()
+    expect(aFresh.rendered!['claude']!.content).toBe('A-RETRIED')
+    expect(aFresh.rendered!['gemini']!.content).toContain('A-RETRIED')
+    expect(aFresh.rendered!['gemini']!.content).not.toContain('A-original')
+    expect(aFresh.rendered!['gpt']!.content).toContain('A-RETRIED')
+    expect(aFresh.rendered!['gpt']!.content).not.toContain('A-original')
+
+    // ── Layer 2: raw SQL row (database persistence) ─────────────────────────
+    // The repo wraps SQL but we want byte-level proof that no stale string
+    // lingers in any column. Pull the literal columns and check each.
+    type Row = {
+      content: string
+      rendered: string | null
+      prompt: string | null
+      visible_to: string
+      status: string
+    }
+    const rawA = db
+      .prepare(
+        'SELECT content, rendered, prompt, visible_to, status FROM messages WHERE id = ?',
+      )
+      .get(aMsg.id) as Row
+    expect(rawA.status).toBe('finalized')
+    expect(rawA.visible_to).toBe('"*"')
+    expect(rawA.content).toBe('A-RETRIED')
+    expect(rawA.content).not.toContain('A-original')
+    expect(rawA.rendered).not.toBeNull()
+    expect(rawA.rendered).toContain('A-RETRIED')
+    expect(rawA.rendered).not.toContain('A-original')
+    // resetMessage NULLs the prompt column; A wasn't re-prompted with a new
+    // round, so it stays null until re-used. (A's own prompt for R0 is
+    // expected to be null after retry — that's by design.)
+
+    // ── Layer 3: round 1 — peers see A-RETRIED in their prompts ─────────────
+    const r1 = orch.startRound({ sessionId: session.id, userText: 'q2', mode: 'free' })
+    await orch.waitForRoundFinalized(r1.round.id)
+
+    const bR1 = r1.assistantMessages.find((m) => m.agentId === 'gemini')!
+    const cR1 = r1.assistantMessages.find((m) => m.agentId === 'gpt')!
+
+    // 3a. via repo (the orchestrator's promptFor + frontend prompt-inspector path)
+    const bRepo = repo.getMessage(bR1.id)!
+    expect(bRepo.prompt).not.toBeNull()
+    const bPrompt = JSON.stringify(bRepo.prompt)
+    expect(bPrompt).toContain('A-RETRIED')
+    expect(bPrompt).not.toContain('A-original')
+
+    // 3b. via raw SQL (database byte-level check)
+    const rawB = db
+      .prepare('SELECT content, prompt FROM messages WHERE id = ?')
+      .get(bR1.id) as Row
+    expect(rawB.prompt).toContain('A-RETRIED')
+    expect(rawB.prompt).not.toContain('A-original')
+
+    const rawC = db
+      .prepare('SELECT content, prompt FROM messages WHERE id = ?')
+      .get(cR1.id) as Row
+    expect(rawC.prompt).toContain('A-RETRIED')
+    expect(rawC.prompt).not.toContain('A-original')
+
+    // ── Layer 4: API-shaped payload (what the frontend actually receives) ──
+    // The frontend renders message.content (bubble body), message.prompt
+    // (debug inspector), and reads them off the /api/sessions/:id snapshot.
+    // listMessages is what powers that endpoint.
+    const allMessages = repo.listMessages(session.id)
+    const apiAFresh = allMessages.find((m) => m.id === aMsg.id)!
+    expect(apiAFresh.content).toBe('A-RETRIED')
+    // R0 peers (B, C) — their prompts predate the retry and are NOT touched.
+    // Their bubble content remains the original B/C replies (unchanged).
+    const bR0 = r0.assistantMessages.find((m) => m.agentId === 'gemini')!
+    const apiBR0 = allMessages.find((m) => m.id === bR0.id)!
+    expect(apiBR0.content).toBe('B-reply')
+    // R1 peers — content not yet meaningful (mocks return fixed strings),
+    // but their prompt history MUST contain the post-retry A.
+    const apiBR1 = allMessages.find((m) => m.id === bR1.id)!
+    const apiBR1PromptStr = JSON.stringify(apiBR1.prompt)
+    expect(apiBR1PromptStr).toContain('A-RETRIED')
+    expect(apiBR1PromptStr).not.toContain('A-original')
+  })
 })

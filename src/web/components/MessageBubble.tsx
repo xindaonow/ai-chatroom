@@ -353,7 +353,7 @@ export function MessageBubble({ message, agentIndex = 0, merged = false }: Props
                 {stream?.error ?? message.content}
               </div>
             ) : (
-              <div className="font-sans text-[12px] leading-relaxed text-parchment-900 whitespace-pre-wrap">
+              <div className="font-sans text-[12px] leading-relaxed text-parchment-900 whitespace-pre-wrap break-words">
                 {liveContent}
                 {isStreaming && (
                   <span
