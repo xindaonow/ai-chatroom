@@ -127,6 +127,12 @@ function RoundBlock({
   // toggle bottom border drops too — without it, the row would look like
   // a stray line floating in empty container space.
   const [collapsed, setCollapsed] = useState(false)
+  // Round-level "expand all bubbles" — compact mode caps each AI bubble to
+  // a short height with a fade. Clicking any one bubble lifts the cap on
+  // every peer so the user can compare full answers side-by-side without
+  // having to click each card. Normal mode has no cap, so this flag is a
+  // no-op there.
+  const [allExpanded, setAllExpanded] = useState(false)
 
   return (
     <div>
@@ -206,7 +212,13 @@ function RoundBlock({
                 ].join(' ')}
               >
                 {m ? (
-                  <MessageBubble message={m} agentIndex={idx} merged />
+                  <MessageBubble
+                    message={m}
+                    agentIndex={idx}
+                    merged
+                    expanded={isCompact ? allExpanded : undefined}
+                    onExpand={isCompact ? () => setAllExpanded(true) : undefined}
+                  />
                 ) : (
                   // Placeholder while the round hasn't started for this agent.
                   // Same structure as MessageBubble so columns don't visually

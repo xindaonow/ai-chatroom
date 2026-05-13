@@ -19,9 +19,21 @@ type Props = {
    *  container. AI bubbles keep their accent stripe + header band so each
    *  column is still identifiable. */
   merged?: boolean
+  /** Optional round-level expansion control. When provided, the bubble
+   *  defers to the parent: in compact mode, expanding one peer expands
+   *  all peers in the same round (so the user can compare full answers
+   *  side-by-side without clicking each card). */
+  expanded?: boolean
+  onExpand?: () => void
 }
 
-export function MessageBubble({ message, agentIndex = 0, merged = false }: Props) {
+export function MessageBubble({
+  message,
+  agentIndex = 0,
+  merged = false,
+  expanded: expandedProp,
+  onExpand,
+}: Props) {
   const stream = useStore((s) => s.streaming.get(message.id))
   const agentLabel = useStore((s) =>
     message.agentId
@@ -39,8 +51,12 @@ export function MessageBubble({ message, agentIndex = 0, merged = false }: Props
   const [retrying, setRetrying] = useState(false)
 
   // Adaptive cap. Defaults collapsed; user clicks Show more to read the
-  // full response inline (no modal, no scroll-region change).
-  const [expanded, setExpanded] = useState(false)
+  // full response inline (no modal, no scroll-region change). When a parent
+  // (e.g., RoundBlock) provides `expandedProp`, defer to it so a click on
+  // one card can expand every peer in the same round.
+  const [localExpanded, setLocalExpanded] = useState(false)
+  const expanded = expandedProp ?? localExpanded
+  const expand = onExpand ?? (() => setLocalExpanded(true))
   const [hasOverflow, setHasOverflow] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const maxHeight = viewMode === 'compact' ? MAX_HEIGHT_COMPACT : MAX_HEIGHT_NORMAL
@@ -331,7 +347,7 @@ export function MessageBubble({ message, agentIndex = 0, merged = false }: Props
           <div
             ref={bodyRef}
             onClick={
-              compactCapped ? () => setExpanded(true) : undefined
+              compactCapped ? expand : undefined
             }
             className={[
               'px-4 py-3 relative',

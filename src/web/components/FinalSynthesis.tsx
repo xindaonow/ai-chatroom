@@ -18,7 +18,7 @@ export function FinalSynthesis({ run }: Props) {
   }, [run.sessionId, run.totalRounds])
 
   return (
-    <div className="rounded-2xl bg-white border border-parchment-200/70 overflow-hidden">
+    <div className="max-w-[600px] rounded-2xl bg-white border border-parchment-200/70 overflow-hidden">
       <button
         onClick={() => setExpanded((e) => !e)}
         aria-expanded={expanded}
